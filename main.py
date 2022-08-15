@@ -30,14 +30,18 @@ def load_config_into_globals():
         if f_cont:
             config = json.loads(f_cont)
 
-            for key in config:
-                globals()[key] = config[key]
+            for key, value in config.items():
+                if key == 'MILESTONES':
+                    value = sorted(value)
+
+                globals()[key] = value
+                config[key] = value
         else:
             config = dict()
-            config['USER_TO_BLAME'] = 141243441614028800  # tameTNT#7902
-            config['BLAMING_GUILD'] = 1001090506140430406  # Durham University K-pop Society
-            config['MILESTONES'] = [10, 50, 100, 500, 1000]
-            config['CELEBRATE_GIF'] = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
+            config['USER_TO_BLAME'] = USER_TO_BLAME
+            config['BLAMING_GUILD'] = BLAMING_GUILD
+            config['MILESTONES'] = MILESTONES
+            config['CELEBRATE_GIF'] = CELEBRATE_GIF
 
         fobj.close()
 
@@ -206,6 +210,28 @@ async def leaderboard(inter: discord.Interaction, category: Literal['User', 'Cha
         )
 
     await inter.response.send_message(embed=leaderboard_embed)
+
+
+@tree.command(guild=discord.Object(id=BLAMING_GUILD))
+@app_commands.describe(n='Value to add as a milestone. '
+                         'There will be a celebration when #blameluca has been used n times in total.')
+async def milestones(inter: discord.Interaction, n: Optional[int]):
+    """View milestones or adds n as a milestone to celebrate when #blameluca is used n times in total."""
+    if n is None:
+        await inter.response.send_message(
+            content=f'Current milestones at: {", ".join(map(str, MILESTONES[:-1]))} and {MILESTONES[-1]} blames.'
+        )
+    else:
+        if len(MILESTONES) > 50:
+            await inter.response.send_message(content='Too many milestones! You can only have 50 milestones.')
+        elif n not in MILESTONES:
+            MILESTONES.append(n)
+            config = json.load(open('config.json', 'r+', encoding='utf-8'))
+            config['MILESTONES'] = MILESTONES
+            json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
+            await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
+        else:
+            await inter.response.send_message(f"{n} is already a milestone.")
 
 
 if __name__ == '__main__':
