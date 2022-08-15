@@ -145,8 +145,8 @@ async def on_message(message: discord.Message):
         )
 
         if total_uses in MILESTONES:
-            await loc.send(f"On the plus side at least, '#blameluca's been used {total_uses} "
-                           f"time{plural_s(total_uses)} now\n{CELEBRATE_GIF}")
+            await loc.send(f"On the plus side at least, <@{USER_TO_BLAME}>'s been blamed {total_uses} "
+                           f"time{plural_s(total_uses)} in total now :unamused: \n{CELEBRATE_GIF}")
 
 
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
@@ -165,13 +165,13 @@ async def stats(inter: discord.Interaction, channel: Optional[discord.TextChanne
 
     if user:
         response_embed.add_field(
-            name=f':person_tipping_hand: Blames from user',
+            name=':person_tipping_hand: Blames from user',
             value=f'{user.mention}: {update_data("by_user", str(user.id), 0)}'
         )
 
     if channel:
         response_embed.add_field(
-            name=f':closed_book: Blames in channel',
+            name=':closed_book: Blames in channel',
             value=f'{channel.mention}: {update_data("by_channel", str(channel.id), 0)}'
         )
 
