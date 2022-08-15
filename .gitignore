@@ -1,0 +1,5 @@
+.config/
+venv/
+.replit
+replit.nix
+__pycache__/

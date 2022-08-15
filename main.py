@@ -121,7 +121,7 @@ async def on_ready():
 
     # run a Flask server to allow for pinging from https://uptimerobot.com to keep repl.it running
     # and awake it from periodic sleep
-    # https://todo.lucahuelle.repl.co/
+    # https://kpopsocblamelucabot.lucahuelle.repl.co/
     keep_alive.keep_alive()
     print('Bot and server both running')
 

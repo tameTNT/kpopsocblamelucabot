@@ -1,13 +1,13 @@
 {
-  "USER_TO_BLAME": 141243441614028800,
-  "BLAMING_GUILD": 1001090506140430406,
-  "MILESTONES": [
-    10,
-    20,
-    50,
-    100,
-    500,
-    1000
-  ],
-  "CELEBRATE_GIF": "https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif"
+    "USER_TO_BLAME": 141243441614028800,
+    "BLAMING_GUILD": 1001090506140430406,
+    "MILESTONES": [
+        10,
+        20,
+        50,
+        100,
+        500,
+        1000
+    ],
+    "CELEBRATE_GIF": "https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif"
 }
