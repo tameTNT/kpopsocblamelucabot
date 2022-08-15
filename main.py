@@ -2,10 +2,11 @@
 
 import json
 import os
+from typing import Optional
 
 import discord
 import discord.ext.commands as commands
-from discord import app_commands, HTTPException
+from discord import HTTPException
 
 import keep_alive
 
@@ -74,7 +75,7 @@ def update_data(tracker: str, key: str, diff: int):
 def play_the_blame(channel_id: int, user_id: int):
     update_data('by_channel', str(channel_id), 1)
     user_uses = update_data('by_user', str(user_id), 1)
-    total_uses = update_data('total', 'total', 1)
+    total_uses = update_data('meta', 'total', 1)
 
     return user_uses, total_uses
 
@@ -116,7 +117,7 @@ async def on_message(message: discord.Message):
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
                     f"That makes it {total_uses} time{plural_s(total_uses)} that <@{USER_TO_BLAME}>'s been blamed... "
-                    f'{user_uses} time{plural_s(user_uses)} by <@{message.author.id}> alone.{is_self_blame}'
+                    f'{user_uses} time{plural_s(user_uses)} by {message.author.mention} alone.{is_self_blame}'
         )
 
         if total_uses in MILESTONES:
@@ -125,10 +126,30 @@ async def on_message(message: discord.Message):
 
 
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
-@app_commands.describe(number='A number')
-async def test(inter: discord.Interaction, number: int):
-    """Test command"""
-    await inter.response.send_message(f'{number=}', ephemeral=True)
+async def blamestats(inter: discord.Interaction, channel: Optional[discord.TextChannel],
+                     user: Optional[discord.Member]):
+    """View the current stats for blaming. Can also display stats for a channel and/or user if desired."""
+
+    response_embed = discord.Embed(
+        title=':100: Blame stats :chart_with_upwards_trend:',
+        color=discord.Colour.blurple(),
+        description=f'Total blames: {update_data("meta", "total", 0)}',
+        timestamp=inter.created_at
+    )
+
+    if user:
+        response_embed.add_field(
+            name=f':person_tipping_hand: Blames from user',
+            value=f'{user.mention}: {update_data("by_user", str(user.id), 0)}'
+        )
+
+    if channel:
+        response_embed.add_field(
+            name=f':closed_book: Blames in channel',
+            value=f'{channel.mention}: {update_data("by_channel", str(channel.id), 0)}'
+        )
+
+    await inter.response.send_message(embed=response_embed)
 
 
 if __name__ == '__main__':
