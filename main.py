@@ -2,16 +2,17 @@
 
 import json
 import os
-from typing import Optional
+from typing import Optional, Literal
 
 import discord
 import discord.ext.commands as commands
-from discord import HTTPException
+from discord import HTTPException, app_commands
 
 import keep_alive
 
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # allows seeking out #blameluca trigger
+intents.members = True  # enables accurate guild members cache
 
 bot = commands.Bot(command_prefix='!unused', intents=intents)
 tree = bot.tree
@@ -72,6 +73,25 @@ def update_data(tracker: str, key: str, diff: int):
     return new_val
 
 
+def get_leaderboard_table(tracker: str, top: int):
+    """Returns the highest (the lowest if top < 0) scoring values for tracker."""
+    with open('data.json', 'r+', encoding='utf-8') as fobj:
+        f_cont = fobj.read()
+        if f_cont:
+            data = json.loads(f_cont)
+        else:
+            return []
+
+        fobj.close()
+
+    if tracker not in data:
+        return []
+    else:
+        table = data[tracker]
+        sorted_table = sorted(table.items(), key=lambda x: x[1], reverse=top > 0)
+        return sorted_table[:top]
+
+
 def play_the_blame(channel_id: int, user_id: int):
     update_data('by_channel', str(channel_id), 1)
     user_uses = update_data('by_user', str(user_id), 1)
@@ -126,12 +146,14 @@ async def on_message(message: discord.Message):
 
 
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
-async def blamestats(inter: discord.Interaction, channel: Optional[discord.TextChannel],
-                     user: Optional[discord.Member]):
+@app_commands.describe(channel='Text channel to view blame stats for.')
+@app_commands.describe(user='Server member to view blame stats for.')
+async def stats(inter: discord.Interaction, channel: Optional[discord.TextChannel],
+                user: Optional[discord.Member]):
     """View the current stats for blaming. Can also display stats for a channel and/or user if desired."""
 
     response_embed = discord.Embed(
-        title=':100: Blame stats :chart_with_upwards_trend:',
+        title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
         description=f'Total blames: {update_data("meta", "total", 0)}',
         timestamp=inter.created_at
@@ -150,6 +172,40 @@ async def blamestats(inter: discord.Interaction, channel: Optional[discord.TextC
         )
 
     await inter.response.send_message(embed=response_embed)
+
+
+@tree.command(guild=discord.Object(id=BLAMING_GUILD))
+@app_commands.describe(category='Category to view leaderboard for.')
+@app_commands.describe(n='Leaderboard will show top n entries; bottom n entries if n is negative.')
+async def leaderboard(inter: discord.Interaction, category: Literal['User', 'Channel'],
+                      n: app_commands.Range[int, -10, 10]):
+    """View the current leaderboard (i.e. the top/bottom n 'blamers') for a particular blaming category."""
+
+    if category == 'User':
+        lb_list = get_leaderboard_table('by_user', n)
+        lb_list = map(lambda x: (inter.guild.get_member(int(x[0])).mention, x[1]), lb_list)
+    elif category == 'Channel':
+        lb_list = get_leaderboard_table('by_channel', n)
+        lb_list = map(lambda x: (inter.guild.get_channel(int(x[0])).mention, x[1]), lb_list)
+    else:
+        raise ValueError(f'Invalid category: {category}')
+
+    leaderboard_embed = discord.Embed(
+        title=f':100: Blame leaderboard - {category}s - {"Top" if n > 0 else "Bottom"} {abs(n)}',
+        color=discord.Colour.blurple(),
+        timestamp=inter.created_at
+    )
+
+    medal_map = {1: ':first_place:', 2: ':second_place:', 3: ':third_place:'}
+
+    for i, (key, value) in enumerate(lb_list):
+        leaderboard_embed.add_field(
+            name=f'{medal_map[i + 1] if i < 3 and n > 0 else ""} {i + 1}.',
+            value=f'{key}: {value} time{plural_s(value)}',
+            inline=True
+        )
+
+    await inter.response.send_message(embed=leaderboard_embed)
 
 
 if __name__ == '__main__':
