@@ -10,5 +10,6 @@
         1000
     ],
     "CELEBRATE_GIF": "https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif",
-    "DATA_FILE": "data.db"
+    "DATA_FILE": "data.db",
+    "SLOWMODE_TIME": 60
 }

@@ -25,6 +25,7 @@ BLAMING_GUILD = 1001090506140430406  # Durham University K-pop Society
 MILESTONES = [10, 50, 100, 500, 1000]
 CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
 DATA_FILE = 'data.db'
+SLOWMODE_TIME = 60
 
 
 class CursorCallable(t.Protocol):
@@ -50,6 +51,7 @@ def load_config_into_globals():
             config['MILESTONES'] = MILESTONES
             config['CELEBRATE_GIF'] = CELEBRATE_GIF
             config['DATA_FILE'] = DATA_FILE
+            config['SLOWMODE_TIME'] = SLOWMODE_TIME
 
         fobj.close()
 
@@ -81,12 +83,21 @@ def db_connect_wrapper(func: CursorCallable):
 
 
 @db_connect_wrapper
-def count_id(tracker: t.Literal['channel_id', 'user_id', 'total'], obj_id: int = None,
-             db_cursor: sqlite3.Cursor = None):
-    if tracker and obj_id:
-        return db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE ? = ?", (tracker, obj_id)).fetchone()[0]
-    elif tracker == 'total':  # counts all rows in table - i.e. total blames
+def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
+             q_argument: int = None, db_cursor: sqlite3.Cursor = None):
+    if q_argument:
+        if query_type in {'channel_id', 'user_id'}:
+            return db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE ? = ?", (query_type, q_argument)).fetchone()[0]
+        elif query_type == 'last':  # returns most recent blame in table from user_id
+            return db_cursor.execute("SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1",
+                                     (q_argument,)).fetchone()[0]
+        else:
+            raise ValueError('Missing argument for query_type.')
+
+    elif query_type == 'total':  # counts all rows in table - i.e. total blames
         return db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
+    else:
+        raise ValueError('Invalid query_type.')
 
 
 @db_connect_wrapper
@@ -146,6 +157,17 @@ async def on_message(message: discord.Message):
         loc = message.channel
         if isinstance(loc, discord.Thread):
             loc = loc.parent
+
+        next_use_okay = query_db('last', message.author.id) + SLOWMODE_TIME
+        if next_use_okay > dt.datetime.utcnow().timestamp():
+            await message.reply(
+                '<:ThisIsFine:1003384259882537040> Hold ya horses! '
+                f'You can only blame {message.guild.get_member(USER_TO_BLAME).display_name} once every '
+                f"{SLOWMODE_TIME} seconds. We wouldn't want anyone abusing this system, would we now?",
+                delete_after=10
+            )
+            return
+
         user_uses, total_uses = play_the_blame(loc.id, message.author.id)
 
         print('Luca blamed')
@@ -171,20 +193,20 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
     response_embed = discord.Embed(
         title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
-        description=f'Total blames: {count_id("total")}',
+        description=f'Total blames: {query_db("total")}',
         timestamp=inter.created_at
     )
 
     if user:
         response_embed.add_field(
             name=':person_tipping_hand: Blames from user',
-            value=f'{user.mention}: {count_id("user_id", user.id)}'
+            value=f'{user.mention}: {query_db("user_id", user.id)}'
         )
 
     if channel:
         response_embed.add_field(
             name=':closed_book: Blames in channel',
-            value=f'{channel.mention}: {count_id("channel_id", channel.id)}'
+            value=f'{channel.mention}: {query_db("channel_id", channel.id)}'
         )
 
     await inter.response.send_message(embed=response_embed)
