@@ -128,7 +128,7 @@ def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = No
         (channel_id, user_id, int(dt.datetime.utcnow().timestamp()))  # time is in UTC
     )
 
-    user_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE user_id=?", (user_id,)).fetchone()[0]
+    user_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE user_id = ?", (user_id,)).fetchone()[0]
     total_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
 
     return user_uses, total_uses
@@ -223,21 +223,21 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
 @app_commands.describe(category='Category to view leaderboard for.')
 @app_commands.describe(n='Leaderboard will show top n entries; bottom n entries if n is negative.')
-async def leaderboard(inter: discord.Interaction, category: t.Literal['Users', 'Channels'],
+async def leaderboard(inter: discord.Interaction, category: t.Literal['users', 'channels'],
                       n: app_commands.Range[int, -10, 10]):
     """View the current leaderboard (i.e. the top/bottom n 'blamers') for a particular blaming category."""
 
-    if category == 'Users':
+    if category == 'users':
         lb_list = get_leaderboard_table('user_id', n)
         lb_list = map(lambda x: (inter.guild.get_member(x[0]).mention, x[1]), lb_list)
-    elif category == 'Channels':
+    elif category == 'channels':
         lb_list = get_leaderboard_table('channel_id', n)
         lb_list = map(lambda x: (inter.guild.get_channel(x[0]).mention, x[1]), lb_list)
     else:
         raise ValueError(f'Invalid category: {category}')
 
     leaderboard_embed = discord.Embed(
-        title=f':100: Blame leaderboard - {category} - {"Top" if n > 0 else "Bottom"} {abs(n)}',
+        title=f':100: Blame leaderboard - {category.title()} - {"Top" if n > 0 else "Bottom"} {abs(n)}',
         color=discord.Colour.blurple(),
         timestamp=inter.created_at
     )
