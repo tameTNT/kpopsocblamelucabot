@@ -67,8 +67,8 @@ def db_connect_wrapper(func: CursorCallable):
         cur = con.cursor()
 
         cur.execute(
-            "CREATE TABLE IF NOT EXISTS Blames "
-            "(blame_id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, timestamp INTEGER)"
+            'CREATE TABLE IF NOT EXISTS Blames '
+            '(blame_id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, timestamp INTEGER)'
         )
 
         func_result = func(*args, **kwargs, db_cursor=cur)
@@ -87,11 +87,11 @@ def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
              q_argument: int = None, db_cursor: sqlite3.Cursor = None):
     if q_argument:
         if query_type in {'channel_id', 'user_id'}:
-            return db_cursor.execute(f"SELECT COUNT(*) FROM Blames WHERE {query_type} = ?", (q_argument,)).fetchone()[
+            return db_cursor.execute(f'SELECT COUNT(*) FROM Blames WHERE {query_type} = ?', (q_argument,)).fetchone()[
                 0]
         elif query_type == 'last':  # returns most recent blame in table from user_id
             most_recent_blame = db_cursor.execute(
-                f"SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1",
+                'SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1',
                 (q_argument,)
             ).fetchone()
             if most_recent_blame:
@@ -102,7 +102,7 @@ def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
             raise ValueError('Missing argument for query_type.')
 
     elif query_type == 'total':  # counts all rows in table - i.e. total blames
-        return db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
+        return db_cursor.execute('SELECT COUNT(*) FROM Blames').fetchone()[0]
     else:
         raise ValueError('Invalid query_type.')
 
@@ -115,8 +115,8 @@ def get_leaderboard_table(tracker: t.Literal['channel_id', 'user_id'], top: int,
         sort_order = 'ASC'
     else:
         sort_order = 'DESC'
-    lb_table = db_cursor.execute(f"SELECT {tracker}, COUNT(*) as c FROM Blames "
-                                 f"GROUP BY {tracker} ORDER BY c {sort_order} LIMIT {top}").fetchall()
+    lb_table = db_cursor.execute(f'SELECT {tracker}, COUNT(*) as c FROM Blames '
+                                 f'GROUP BY {tracker} ORDER BY c {sort_order} LIMIT {top}').fetchall()
 
     return lb_table
 
@@ -124,12 +124,12 @@ def get_leaderboard_table(tracker: t.Literal['channel_id', 'user_id'], top: int,
 @db_connect_wrapper
 def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = None):
     db_cursor.execute(
-        "INSERT INTO Blames (channel_id, user_id, timestamp) VALUES (?, ?, ?)",
+        'INSERT INTO Blames (channel_id, user_id, timestamp) VALUES (?, ?, ?)',
         (channel_id, user_id, int(dt.datetime.utcnow().timestamp()))  # time is in UTC
     )
 
-    user_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE user_id = ?", (user_id,)).fetchone()[0]
-    total_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
+    user_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames WHERE user_id = ?', (user_id,)).fetchone()[0]
+    total_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames').fetchone()[0]
 
     return user_uses, total_uses
 
@@ -179,7 +179,7 @@ async def on_message(message: discord.Message):
         user_uses, total_uses = play_the_blame(loc.id, message.author.id)
 
         print(f'Luca has been blamed at {current_blame_time} UTC by {message.author.id} in {loc.id}')
-        is_self_blame = "\nWait, why blame yourself? :thinking:" if message.author.id == USER_TO_BLAME else ""
+        is_self_blame = '\nWait, why blame yourself? :thinking:' if message.author.id == USER_TO_BLAME else ''
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
                     f"That makes it {total_uses} time{plural_s(total_uses)} that <@{USER_TO_BLAME}>'s been blamed... "
@@ -188,7 +188,7 @@ async def on_message(message: discord.Message):
 
         if total_uses in MILESTONES:
             await loc.send(f"On the plus side at least, <@{USER_TO_BLAME}>'s been blamed {total_uses} "
-                           f"time{plural_s(total_uses)} in total now :unamused: \n{CELEBRATE_GIF}")
+                           f'time{plural_s(total_uses)} in total now :unamused: \n{CELEBRATE_GIF}')
 
 
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
@@ -201,20 +201,22 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
     response_embed = discord.Embed(
         title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
-        description=f'Total blames: {query_db("total")}',
+        description='Total blames: ' + str(query_db('total')),
         timestamp=inter.created_at
     )
 
     if user:
         response_embed.add_field(
             name=':person_tipping_hand: Blames from user',
-            value=f'{user.mention}: {query_db("user_id", user.id)}'
+            value=user.mention + str(query_db('user_id', user.id)),
+            inline=True
         )
 
     if channel:
         response_embed.add_field(
             name=':closed_book: Blames in channel',
-            value=f'{channel.mention}: {query_db("channel_id", channel.id)}'
+            value=channel.mention + str(query_db('channel_id', channel.id)),
+            inline=True
         )
 
     await inter.response.send_message(embed=response_embed)
@@ -280,7 +282,7 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
         else:
-            await inter.response.send_message(f"{n} is already a milestone.")
+            await inter.response.send_message(f'{n} is already a milestone.')
 
 
 if __name__ == '__main__':
