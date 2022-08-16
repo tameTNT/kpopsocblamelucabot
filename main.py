@@ -87,10 +87,17 @@ def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
              q_argument: int = None, db_cursor: sqlite3.Cursor = None):
     if q_argument:
         if query_type in {'channel_id', 'user_id'}:
-            return db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE ? = ?", (query_type, q_argument)).fetchone()[0]
+            return db_cursor.execute(f"SELECT COUNT(*) FROM Blames WHERE {query_type} = ?", (q_argument,)).fetchone()[
+                0]
         elif query_type == 'last':  # returns most recent blame in table from user_id
-            return db_cursor.execute("SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1",
-                                     (q_argument,)).fetchone()[0]
+            most_recent_blame = db_cursor.execute(
+                f"SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1",
+                (q_argument,)
+            ).fetchone()
+            if most_recent_blame:
+                return most_recent_blame[0]
+            else:
+                return 0
         else:
             raise ValueError('Missing argument for query_type.')
 
