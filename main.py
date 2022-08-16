@@ -235,6 +235,7 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
         lb_list = map(lambda x: (inter.guild.get_channel(x[0]).mention, x[1]), lb_list)
     else:
         raise ValueError(f'Invalid category: {category}')
+    lb_list = list(lb_list)
 
     leaderboard_embed = discord.Embed(
         title=f':100: Blame leaderboard - {category.title()} - {"Top" if n > 0 else "Bottom"} {abs(n)}',
@@ -244,11 +245,17 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
 
     medal_map = {1: ':first_place:', 2: ':second_place:', 3: ':third_place:'}
 
-    for i, (key, value) in enumerate(lb_list):
+    if lb_list:
+        for i, (key, value) in enumerate(lb_list):
+            leaderboard_embed.add_field(
+                name=f'{medal_map[i + 1] if i < 3 and n > 0 else ""} {i + 1}.',
+                value=f'{key}: {value} time{plural_s(value)}',
+                inline=True
+            )
+    else:
         leaderboard_embed.add_field(
-            name=f'{medal_map[i + 1] if i < 3 and n > 0 else ""} {i + 1}.',
-            value=f'{key}: {value} time{plural_s(value)}',
-            inline=True
+            name='<:BangchanShock:1004821030390480996> Wow no blames?',
+            value="I'm sure that'll change soon enough..."
         )
 
     await inter.response.send_message(embed=leaderboard_embed)
