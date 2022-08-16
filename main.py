@@ -1,8 +1,10 @@
 # https://discord.com/api/oauth2/authorize?client_id=1008732377612292266&permissions=277025737792&scope=bot
 
+import datetime as dt
 import json
 import os
-from typing import Optional, Literal
+import sqlite3
+import typing as t
 
 import discord
 import discord.ext.commands as commands
@@ -22,6 +24,11 @@ USER_TO_BLAME = 141243441614028800  # tameTNT#7902
 BLAMING_GUILD = 1001090506140430406  # Durham University K-pop Society
 MILESTONES = [10, 50, 100, 500, 1000]
 CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
+DATA_FILE = 'data.db'
+
+
+class CursorCallable(t.Protocol):
+    def __call__(self, db_cursor: sqlite3.Cursor = None, *args, **kwargs) -> t.Any: ...
 
 
 def load_config_into_globals():
@@ -42,64 +49,69 @@ def load_config_into_globals():
             config['BLAMING_GUILD'] = BLAMING_GUILD
             config['MILESTONES'] = MILESTONES
             config['CELEBRATE_GIF'] = CELEBRATE_GIF
+            config['DATA_FILE'] = DATA_FILE
 
         fobj.close()
 
     json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
 
 
-def update_data(tracker: str, key: str, diff: int):
-    if not isinstance(key, str):
-        raise TypeError('key must be a string because JSON object keys must be strings')
+def db_connect_wrapper(func: CursorCallable):
+    """Wrapper handles opening database, creating main Blames table if it doesn't exist, and closing database."""
 
-    with open('data.json', 'r+', encoding='utf-8') as fobj:
-        f_cont = fobj.read()
-        if f_cont:
-            data = json.loads(f_cont)
-        else:
-            data = dict()
+    def connect_to_db(*args, **kwargs):
+        print('Opening database...')
+        con = sqlite3.connect(DATA_FILE)
+        cur = con.cursor()
 
-        if tracker not in data:
-            data[tracker] = dict()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS Blames "
+            "(blame_id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, timestamp INTEGER)"
+        )
 
-        table = data[tracker]
-        if key in table:
-            table[key] += diff
-        else:
-            table[key] = diff
+        func_result = func(*args, **kwargs, db_cursor=cur)
 
-        new_val = table[key]
+        con.commit()
+        con.close()
+        print('Database closed.')
 
-        fobj.close()
+        return func_result
 
-    json.dump(data, open('data.json', 'w', encoding='utf-8'), indent=4)
-
-    return new_val
+    return connect_to_db
 
 
-def get_leaderboard_table(tracker: str, top: int):
+@db_connect_wrapper
+def count_id(tracker: t.Literal['channel_id', 'user_id', 'total'], obj_id: int = None,
+             db_cursor: sqlite3.Cursor = None):
+    if tracker and obj_id:
+        return db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE ? = ?", (tracker, obj_id)).fetchone()[0]
+    elif tracker == 'total':  # counts all rows in table - i.e. total blames
+        return db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
+
+
+@db_connect_wrapper
+def get_leaderboard_table(tracker: t.Literal['channel_id', 'user_id'], top: int, db_cursor: sqlite3.Cursor = None):
     """Returns the highest (the lowest if top < 0) scoring values for tracker."""
-    with open('data.json', 'r+', encoding='utf-8') as fobj:
-        f_cont = fobj.read()
-        if f_cont:
-            data = json.loads(f_cont)
-        else:
-            return []
-
-        fobj.close()
-
-    if tracker not in data:
-        return []
+    if top < 0:
+        top = -top
+        sort_order = 'ASC'
     else:
-        table = data[tracker]
-        sorted_table = sorted(table.items(), key=lambda x: x[1], reverse=top > 0)
-        return sorted_table[:top]
+        sort_order = 'DESC'
+    lb_table = db_cursor.execute(f"SELECT {tracker}, COUNT(*) as c FROM Blames "
+                                 f"GROUP BY {tracker} ORDER BY c {sort_order} LIMIT {top}").fetchall()
+
+    return lb_table
 
 
-def play_the_blame(channel_id: int, user_id: int):
-    update_data('by_channel', str(channel_id), 1)
-    user_uses = update_data('by_user', str(user_id), 1)
-    total_uses = update_data('meta', 'total', 1)
+@db_connect_wrapper
+def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = None):
+    db_cursor.execute(
+        "INSERT INTO Blames (channel_id, user_id, timestamp) VALUES (?, ?, ?)",
+        (channel_id, user_id, int(dt.datetime.utcnow().timestamp()))  # time is in UTC
+    )
+
+    user_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames WHERE user_id=?", (user_id,)).fetchone()[0]
+    total_uses = db_cursor.execute("SELECT COUNT(*) FROM Blames").fetchone()[0]
 
     return user_uses, total_uses
 
@@ -152,27 +164,27 @@ async def on_message(message: discord.Message):
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
 @app_commands.describe(channel='Text channel to view blame stats for.')
 @app_commands.describe(user='Server member to view blame stats for.')
-async def stats(inter: discord.Interaction, channel: Optional[discord.TextChannel],
-                user: Optional[discord.Member]):
+async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChannel],
+                user: t.Optional[discord.Member]):
     """View the current stats for blaming. Can also display stats for a channel and/or user if desired."""
 
     response_embed = discord.Embed(
         title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
-        description=f'Total blames: {update_data("meta", "total", 0)}',
+        description=f'Total blames: {count_id("total")}',
         timestamp=inter.created_at
     )
 
     if user:
         response_embed.add_field(
             name=':person_tipping_hand: Blames from user',
-            value=f'{user.mention}: {update_data("by_user", str(user.id), 0)}'
+            value=f'{user.mention}: {count_id("user_id", user.id)}'
         )
 
     if channel:
         response_embed.add_field(
             name=':closed_book: Blames in channel',
-            value=f'{channel.mention}: {update_data("by_channel", str(channel.id), 0)}'
+            value=f'{channel.mention}: {count_id("channel_id", channel.id)}'
         )
 
     await inter.response.send_message(embed=response_embed)
@@ -181,21 +193,21 @@ async def stats(inter: discord.Interaction, channel: Optional[discord.TextChanne
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
 @app_commands.describe(category='Category to view leaderboard for.')
 @app_commands.describe(n='Leaderboard will show top n entries; bottom n entries if n is negative.')
-async def leaderboard(inter: discord.Interaction, category: Literal['User', 'Channel'],
+async def leaderboard(inter: discord.Interaction, category: t.Literal['Users', 'Channels'],
                       n: app_commands.Range[int, -10, 10]):
     """View the current leaderboard (i.e. the top/bottom n 'blamers') for a particular blaming category."""
 
-    if category == 'User':
-        lb_list = get_leaderboard_table('by_user', n)
-        lb_list = map(lambda x: (inter.guild.get_member(int(x[0])).mention, x[1]), lb_list)
-    elif category == 'Channel':
-        lb_list = get_leaderboard_table('by_channel', n)
-        lb_list = map(lambda x: (inter.guild.get_channel(int(x[0])).mention, x[1]), lb_list)
+    if category == 'Users':
+        lb_list = get_leaderboard_table('user_id', n)
+        lb_list = map(lambda x: (inter.guild.get_member(x[0]).mention, x[1]), lb_list)
+    elif category == 'Channels':
+        lb_list = get_leaderboard_table('channel_id', n)
+        lb_list = map(lambda x: (inter.guild.get_channel(x[0]).mention, x[1]), lb_list)
     else:
         raise ValueError(f'Invalid category: {category}')
 
     leaderboard_embed = discord.Embed(
-        title=f':100: Blame leaderboard - {category}s - {"Top" if n > 0 else "Bottom"} {abs(n)}',
+        title=f':100: Blame leaderboard - {category} - {"Top" if n > 0 else "Bottom"} {abs(n)}',
         color=discord.Colour.blurple(),
         timestamp=inter.created_at
     )
@@ -215,7 +227,7 @@ async def leaderboard(inter: discord.Interaction, category: Literal['User', 'Cha
 @tree.command(guild=discord.Object(id=BLAMING_GUILD))
 @app_commands.describe(n='Value to add as a milestone. '
                          'There will be a celebration when #blameluca has been used n times in total.')
-async def milestones(inter: discord.Interaction, n: Optional[int]):
+async def milestones(inter: discord.Interaction, n: t.Optional[int]):
     """View milestones or adds n as a milestone to celebrate when #blameluca is used n times in total."""
     if n is None:
         await inter.response.send_message(
