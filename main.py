@@ -62,7 +62,7 @@ def db_connect_wrapper(func: CursorCallable):
     """Wrapper handles opening database, creating main Blames table if it doesn't exist, and closing database."""
 
     def connect_to_db(*args, **kwargs):
-        print('Opening database...')
+        print('Opening database...', end='\r')
         con = sqlite3.connect(DATA_FILE)
         cur = con.cursor()
 
@@ -75,7 +75,7 @@ def db_connect_wrapper(func: CursorCallable):
 
         con.commit()
         con.close()
-        print('Database closed.')
+        print('Database closed.   ')
 
         return func_result
 
@@ -158,8 +158,9 @@ async def on_message(message: discord.Message):
         if isinstance(loc, discord.Thread):
             loc = loc.parent
 
+        current_blame_time = dt.datetime.utcnow().timestamp()
         next_use_okay = query_db('last', message.author.id) + SLOWMODE_TIME
-        if next_use_okay > dt.datetime.utcnow().timestamp():
+        if next_use_okay > current_blame_time:
             await message.reply(
                 '<:ThisIsFine:1003384259882537040> Hold ya horses! '
                 f'You can only blame {message.guild.get_member(USER_TO_BLAME).display_name} once every '
@@ -170,7 +171,7 @@ async def on_message(message: discord.Message):
 
         user_uses, total_uses = play_the_blame(loc.id, message.author.id)
 
-        print('Luca blamed')
+        print(f'Luca has been blamed at {current_blame_time} UTC by {message.author.id} in {loc.id}')
         is_self_blame = "\nWait, why blame yourself? :thinking:" if message.author.id == USER_TO_BLAME else ""
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
