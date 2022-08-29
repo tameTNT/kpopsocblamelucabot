@@ -1,23 +1,38 @@
-# https://discord.com/api/oauth2/authorize?client_id=1008732377612292266&permissions=277025737792&scope=bot
+# Invite: https://discord.com/api/oauth2/authorize?client_id=1008732377612292266&permissions=277025737792&scope=bot
+# todo: multi-server blame bot (separate config, separate tables (by server ID))
 
-import datetime as dt
 import json
 import os
 import sqlite3
 import typing as t
+from datetime import datetime, timezone
 
 import discord
-import discord.ext.commands as commands
-from discord import HTTPException, app_commands
+from discord import app_commands
 
-import keep_alive
 
-intents = discord.Intents.default()
-intents.message_content = True  # allows seeking out #blameluca trigger
-intents.members = True  # enables accurate guild members cache
+class BlameClient(discord.Client):
+    def __init__(self, guild_id: int):
+        intents = discord.Intents.default()
+        intents.message_content = True  # allows seeking out #blameluca trigger
+        intents.members = True  # enables accurate guild members cache
+        super().__init__(intents=intents)
 
-bot = commands.Bot(command_prefix='!unused', intents=intents)
-tree = bot.tree
+        self.tree = app_commands.CommandTree(self)
+        self.guild_id = guild_id
+
+    async def setup_hook(self):
+        load_config_into_globals()
+
+        await self.change_presence(activity=discord.Game('the blame game - #blameluca amir?'))
+
+        sync_guild = discord.Object(id=self.guild_id)
+        self.tree.copy_global_to(guild=sync_guild)
+        # DEPLOY TODO: change guild to None for global sync
+        await self.tree.sync(guild=sync_guild)
+
+        console_log_with_time('Bot ready & running - blame away...')
+
 
 # Default config
 USER_TO_BLAME = 141243441614028800  # tameTNT#7902
@@ -27,9 +42,11 @@ CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
 DATA_FILE = 'data.db'
 SLOWMODE_TIME = 60
 
+client = BlameClient(BLAMING_GUILD)
 
-class CursorCallable(t.Protocol):
-    def __call__(self, db_cursor: sqlite3.Cursor = None, *args, **kwargs) -> t.Any: ...
+
+def console_log_with_time(msg: str, **kwargs):
+    print(f'[blame] {datetime.now(tz=timezone.utc):%Y/%m/%d %H:%M:%S%z} - {msg}', **kwargs)
 
 
 def load_config_into_globals():
@@ -58,11 +75,15 @@ def load_config_into_globals():
     json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
 
 
+class CursorCallable(t.Protocol):
+    def __call__(self, db_cursor: sqlite3.Cursor = None, *args, **kwargs) -> t.Any: ...
+
+
 def db_connect_wrapper(func: CursorCallable):
     """Wrapper handles opening database, creating main Blames table if it doesn't exist, and closing database."""
 
     def connect_to_db(*args, **kwargs):
-        print('Opening database...', end='\r')
+        console_log_with_time('Opening database...', end='\r')
         con = sqlite3.connect(DATA_FILE)
         cur = con.cursor()
 
@@ -75,7 +96,7 @@ def db_connect_wrapper(func: CursorCallable):
 
         con.commit()
         con.close()
-        print('Database closed.   ')
+        console_log_with_time('Database closed.   ')
 
         return func_result
 
@@ -125,7 +146,7 @@ def get_leaderboard_table(tracker: t.Literal['channel_id', 'user_id'], top: int,
 def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = None):
     db_cursor.execute(
         'INSERT INTO Blames (channel_id, user_id, timestamp) VALUES (?, ?, ?)',
-        (channel_id, user_id, int(dt.datetime.utcnow().timestamp()))  # time is in UTC
+        (channel_id, user_id, int(datetime.utcnow().timestamp()))  # time is in UTC
     )
 
     user_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames WHERE user_id = ?', (user_id,)).fetchone()[0]
@@ -141,22 +162,7 @@ def plural_s(i: int):
         return 's'
 
 
-@bot.event  # initial start-up event
-async def on_ready():
-    load_config_into_globals()
-
-    await bot.change_presence(activity=discord.Game('the blame game'))
-    await tree.sync(guild=discord.Object(id=BLAMING_GUILD))  # sync commands
-    print('Bot ready & running - blame away...')
-
-    # run a Flask server to allow for pinging from https://uptimerobot.com to keep repl.it running
-    # and awake it from periodic sleep
-    # https://kpopsocblamelucabot.lucahuelle.repl.co/
-    keep_alive.keep_alive()
-    print('Bot and server both running')
-
-
-@bot.event
+@client.event
 async def on_message(message: discord.Message):
     # make sure bot has permission to see all messages
 
@@ -165,7 +171,7 @@ async def on_message(message: discord.Message):
         if isinstance(loc, discord.Thread):
             loc = loc.parent
 
-        current_blame_time = dt.datetime.utcnow().timestamp()
+        current_blame_time = datetime.utcnow().timestamp()
         next_use_okay = query_db('last', message.author.id) + SLOWMODE_TIME
         if next_use_okay > current_blame_time:
             await message.reply(
@@ -178,7 +184,7 @@ async def on_message(message: discord.Message):
 
         user_uses, total_uses = play_the_blame(loc.id, message.author.id)
 
-        print(f'Luca has been blamed at {current_blame_time} UTC by {message.author.id} in {loc.id}')
+        console_log_with_time(f'Luca has been blamed at {current_blame_time} UTC by {message.author.id} in {loc.id}')
         is_self_blame = '\nWait, why blame yourself? :thinking:' if message.author.id == USER_TO_BLAME else ''
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
@@ -191,7 +197,7 @@ async def on_message(message: discord.Message):
                            f'time{plural_s(total_uses)} in total now :unamused: \n{CELEBRATE_GIF}')
 
 
-@tree.command(guild=discord.Object(id=BLAMING_GUILD))
+@client.tree.command()
 @app_commands.describe(channel='Text channel to view blame stats for.')
 @app_commands.describe(user='Server member to view blame stats for.')
 async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChannel],
@@ -222,7 +228,7 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
     await inter.response.send_message(embed=response_embed)
 
 
-@tree.command(guild=discord.Object(id=BLAMING_GUILD))
+@client.tree.command()
 @app_commands.describe(category='Category to view leaderboard for.')
 @app_commands.describe(n='Leaderboard will show top n entries; bottom n entries if n is negative.')
 async def leaderboard(inter: discord.Interaction, category: t.Literal['users', 'channels'],
@@ -263,7 +269,7 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
     await inter.response.send_message(embed=leaderboard_embed)
 
 
-@tree.command(guild=discord.Object(id=BLAMING_GUILD))
+@client.tree.command()
 @app_commands.describe(n='Value to add as a milestone. '
                          'There will be a celebration when #blameluca has been used n times in total.')
 async def milestones(inter: discord.Interaction, n: t.Optional[int]):
@@ -285,9 +291,5 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(f'{n} is already a milestone.')
 
 
-if __name__ == '__main__':
-    try:
-        bot.run(os.environ['DISCORD_BLAME_TOKEN'])
-    except HTTPException as e:
-        print(f'{e}\nHTTP ERROR 429 - Too Many Requests\n'
-              'Discord has rate limited repl.it and the bot will not work for this time.')
+# DEPLOY TODO: hardcode token
+client.run(os.environ['DISCORD_BLAME_TOKEN'])
