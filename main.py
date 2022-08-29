@@ -22,16 +22,10 @@ class BlameClient(discord.Client):
         self.guild_id = guild_id
 
     async def setup_hook(self):
-        load_config_into_globals()
-
-        await self.change_presence(activity=discord.Game('the blame game - #blameluca amir?'))
-
         sync_guild = discord.Object(id=self.guild_id)
         self.tree.copy_global_to(guild=sync_guild)
         # DEPLOY TODO: change guild to None for global sync
         await self.tree.sync(guild=sync_guild)
-
-        console_log_with_time('Bot ready & running - blame away...')
 
 
 # Default config
@@ -184,8 +178,10 @@ async def on_message(message: discord.Message):
 
         user_uses, total_uses = play_the_blame(loc.id, message.author.id)
 
-        console_log_with_time(f'Luca has been blamed at {current_blame_time} UTC by {message.author.id} in {loc.id}')
-        is_self_blame = '\nWait, why blame yourself? :thinking:' if message.author.id == USER_TO_BLAME else ''
+        console_log_with_time(f'Luca has been blamed at {current_blame_time:.1f} UTC '
+                              f'by user {message.author.id} in channel {loc.id}')
+
+        is_self_blame = '\nWait, why blame yourself tho? :thinking:' if message.author.id == USER_TO_BLAME else ''
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
                     f"That makes it {total_uses} time{plural_s(total_uses)} that <@{USER_TO_BLAME}>'s been blamed... "
@@ -289,6 +285,15 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
         else:
             await inter.response.send_message(f'{n} is already a milestone.')
+
+
+@client.event
+async def on_ready():
+    load_config_into_globals()
+
+    await client.change_presence(activity=discord.Game('the blame game - #blameluca amir?'))
+
+    console_log_with_time('Bot ready & running - blame away...')
 
 
 # DEPLOY TODO: hardcode token
