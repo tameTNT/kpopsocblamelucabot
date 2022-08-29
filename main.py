@@ -33,8 +33,10 @@ USER_TO_BLAME = 141243441614028800  # tameTNT#7902
 BLAMING_GUILD = 1001090506140430406  # Durham University K-pop Society
 MILESTONES = [10, 50, 100, 500, 1000]
 CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
-DATA_FILE = 'data.db'
+DATA_FILE = 'blame/data.db'
 SLOWMODE_TIME = 60
+
+CONFIG_PATH = 'blame/config.json'
 
 client = BlameClient(BLAMING_GUILD)
 
@@ -44,7 +46,7 @@ def console_log_with_time(msg: str, **kwargs):
 
 
 def load_config_into_globals():
-    with open('config.json', 'r+', encoding='utf-8') as fobj:
+    with open(CONFIG_PATH, 'r+', encoding='utf-8') as fobj:
         f_cont = fobj.read()
         if f_cont:
             config = json.loads(f_cont)
@@ -66,7 +68,7 @@ def load_config_into_globals():
 
         fobj.close()
 
-    json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
+    json.dump(config, open(CONFIG_PATH, 'w', encoding='utf-8'), indent=4)
 
 
 class CursorCallable(t.Protocol):
@@ -279,9 +281,9 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(content='Too many milestones! You can only have 50 milestones.')
         elif n not in MILESTONES:
             MILESTONES.append(n)
-            config = json.load(open('config.json', 'r+', encoding='utf-8'))
+            config = json.load(open(CONFIG_PATH, 'r+', encoding='utf-8'))
             config['MILESTONES'] = MILESTONES
-            json.dump(config, open('config.json', 'w', encoding='utf-8'), indent=4)
+            json.dump(config, open(CONFIG_PATH, 'w', encoding='utf-8'), indent=4)
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
         else:
             await inter.response.send_message(f'{n} is already a milestone.')
