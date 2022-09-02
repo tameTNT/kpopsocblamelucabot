@@ -20,11 +20,12 @@ class BlameClient(discord.Client):
 
         self.tree = app_commands.CommandTree(self)
         self.guild_id = guild_id
+        self.sync_guild = discord.Object(id=self.guild_id)
 
     async def setup_hook(self):
-        sync_guild = discord.Object(id=self.guild_id)
         # DEPLOY TODO: change guild to None for global sync
-        await self.tree.sync(guild=sync_guild)
+        await self.tree.sync(guild=self.sync_guild)
+        console_log_with_time('Commands synced.')
 
 
 # Default config
@@ -44,11 +45,12 @@ client = BlameClient(BLAMING_GUILD)
 
 
 def console_log_with_time(msg: str, **kwargs):
-    print(f'[blame] {datetime.now(tz=timezone.utc):%Y/%m/%d %H:%M:%S%z} - {msg}', **kwargs)
+    print(f'[blame] {datetime.now(tz=timezone.utc):%Y/%m/%d %H:%M:%S%f%z} - {msg}', **kwargs)
 
 
-def load_config_into_globals():
-    with open(CONFIG_PATH, 'r+', encoding='utf-8') as fobj:
+def load_config_into_globals(path=CONFIG_PATH):
+    """Overwrites globals with values from config file at path (defaults to CONFIG_PATH)."""
+    with open(path, 'r+', encoding='utf-8') as fobj:
         f_cont = fobj.read()
         if f_cont:
             config = json.loads(f_cont)
@@ -58,7 +60,7 @@ def load_config_into_globals():
                     value = sorted(value)
 
                 globals()[key] = value
-                config[key] = value
+                config[key] = value  # for sorted milestones
         else:
             config = dict()
             config['USER_TO_BLAME'] = USER_TO_BLAME
@@ -79,6 +81,7 @@ def update_config_with_global(global_name: str):
     config = json.load(open(CONFIG_PATH, 'r+', encoding='utf-8'))
     config[global_name] = globals()[global_name]
     json.dump(config, open(CONFIG_PATH, 'w', encoding='utf-8'), indent=4)
+    console_log_with_time('Updated config file with globals')
 
 
 class CursorCallable(t.Protocol):
@@ -89,7 +92,7 @@ def db_connect_wrapper(func: CursorCallable):
     """Wrapper handles opening database, creating main Blames table if it doesn't exist, and closing database."""
 
     def connect_to_db(*args, **kwargs):
-        console_log_with_time('Opening database...', end='\r')
+        console_log_with_time('Opening database...')
         con = sqlite3.connect(DATA_FILE)
         cur = con.cursor()
 
@@ -102,7 +105,7 @@ def db_connect_wrapper(func: CursorCallable):
 
         con.commit()
         con.close()
-        console_log_with_time('Database closed.   ')
+        console_log_with_time('Database closed.')
 
         return func_result
 
@@ -112,6 +115,7 @@ def db_connect_wrapper(func: CursorCallable):
 @db_connect_wrapper
 def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
              q_argument: int = None, db_cursor: sqlite3.Cursor = None):
+    console_log_with_time(f'Querying DB. Type: {query_type} | Arg: {q_argument}')
     if q_argument:
         if query_type in {'channel_id', 'user_id'}:
             return db_cursor.execute(f'SELECT COUNT(*) FROM Blames WHERE {query_type} = ?', (q_argument,)).fetchone()[
@@ -158,6 +162,7 @@ def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = No
     user_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames WHERE user_id = ?', (user_id,)).fetchone()[0]
     total_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames').fetchone()[0]
 
+    console_log_with_time('Updated blame SQL table')
     return user_uses, total_uses
 
 
@@ -170,7 +175,7 @@ def plural_s(i: int):
 
 @client.event
 async def on_message(message: discord.Message):
-    # make sure bot has permission to see all messages
+    # make sure bot has permission to see all message content and messages (in threads etc.)
 
     if '#blameluca' in message.content.lower():
         loc = message.channel
@@ -207,15 +212,18 @@ async def on_message(message: discord.Message):
         if total_uses in MILESTONES:
             await loc.send(f"On the plus side at least, <@{USER_TO_BLAME}>'s been blamed {total_uses} "
                            f'time{plural_s(total_uses)} in total now :unamused: \n{CELEBRATE_GIF}')
+            console_log_with_time(f'Milestone ({total_uses}) reached!')
 
 
 @client.tree.command()
-@app_commands.describe(channel='Text channel to view blame stats for.')
-@app_commands.describe(user='Server member to view blame stats for.')
+@app_commands.describe(channel='Text channel to view blame stats for.',
+                       user='Server member to view blame stats for.')
 async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChannel],
                 user: t.Optional[discord.Member]):
     """View the current stats for blaming. Can also display stats for a channel and/or user if desired."""
 
+    console_log_with_time(f'Stats requested. '
+                          f'Channel: {channel.id if channel else None} | User: {user.id if user else None}')
     response_embed = discord.Embed(
         title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
@@ -241,12 +249,13 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
 
 
 @client.tree.command()
-@app_commands.describe(category='Category to view leaderboard for.')
-@app_commands.describe(n='Leaderboard will show top n entries; bottom n entries if n is negative.')
+@app_commands.describe(category='Category to view leaderboard for.',
+                       n='Leaderboard will show top n entries; bottom n entries if n is negative (<0).')
 async def leaderboard(inter: discord.Interaction, category: t.Literal['users', 'channels'],
                       n: app_commands.Range[int, -10, 10]):
     """View the current leaderboard (i.e. the top/bottom n 'blamers') for a particular blaming category."""
 
+    console_log_with_time(f'Leaderboard requested. Category: {category} | n: {n}')
     if category == 'users':
         lb_list = get_leaderboard_table('user_id', n)
         lb_list = map(lambda x: (inter.guild.get_member(x[0]).mention, x[1]), lb_list)
@@ -287,6 +296,7 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
 @app_commands.checks.has_permissions(manage_guild=True)
 async def milestones(inter: discord.Interaction, n: t.Optional[int]):
     """View milestones or adds n as a milestone to celebrate when #blameluca is used n times in total."""
+
     if n is None:
         await inter.response.send_message(
             content=f'Current milestones at: {", ".join(map(str, MILESTONES[:-1]))} and {MILESTONES[-1]} blames.'
@@ -298,6 +308,7 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             MILESTONES.append(n)
             update_config_with_global('MILESTONES')
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
+            console_log_with_time(f'Milestones updated. {n} added.')
         else:
             await inter.response.send_message(f'{n} is already a milestone.')
 
