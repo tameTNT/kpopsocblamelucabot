@@ -23,7 +23,6 @@ class BlameClient(discord.Client):
 
     async def setup_hook(self):
         sync_guild = discord.Object(id=self.guild_id)
-        self.tree.copy_global_to(guild=sync_guild)
         # DEPLOY TODO: change guild to None for global sync
         await self.tree.sync(guild=sync_guild)
 
@@ -270,6 +269,7 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
 @client.tree.command()
 @app_commands.describe(n='Value to add as a milestone. '
                          'There will be a celebration when #blameluca has been used n times in total.')
+@app_commands.checks.has_permissions(manage_guild=True)
 async def milestones(inter: discord.Interaction, n: t.Optional[int]):
     """View milestones or adds n as a milestone to celebrate when #blameluca is used n times in total."""
     if n is None:
@@ -287,6 +287,20 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
         else:
             await inter.response.send_message(f'{n} is already a milestone.')
+
+
+@milestones.error
+async def milestones_handler(inter: discord.Interaction, err: discord.app_commands.AppCommandError):
+    if isinstance(err, discord.app_commands.CheckFailure):
+        await inter.response.send_message(
+            content="You don't have the necessary permissions to run this command - sorry :(",
+            ephemeral=True
+        )
+    else:
+        await inter.response.send_message(
+            content=f'An error occurred: {err}\n #blameluca',
+            ephemeral=False
+        )
 
 
 @client.event
