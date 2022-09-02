@@ -11,5 +11,9 @@
     ],
     "CELEBRATE_GIF": "https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif",
     "DATA_FILE": "blame/data.db",
-    "SLOWMODE_TIME": 60
+    "SLOWMODE_TIME": 60,
+    "BONUS_QUIPS": {
+        "141243441614028800": "Wait, why blame yourself tho? :thinking:",
+        "796390569383034881": "Pres abusing her powers again I see... \ud83d\ude44"
+    }
 }

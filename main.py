@@ -34,6 +34,9 @@ MILESTONES = [10, 50, 100, 500, 1000]
 CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
 DATA_FILE = 'blame/data.db'
 SLOWMODE_TIME = 60
+BONUS_QUIPS = {
+    str(USER_TO_BLAME): 'Wait, why blame yourself tho? :thinking:'
+}
 
 CONFIG_PATH = 'blame/config.json'
 
@@ -64,9 +67,17 @@ def load_config_into_globals():
             config['CELEBRATE_GIF'] = CELEBRATE_GIF
             config['DATA_FILE'] = DATA_FILE
             config['SLOWMODE_TIME'] = SLOWMODE_TIME
+            config['BONUS_QUIPS'] = BONUS_QUIPS
 
         fobj.close()
 
+    json.dump(config, open(path, 'w', encoding='utf-8'), indent=4)
+    console_log_with_time('Config file loaded')
+
+
+def update_config_with_global(global_name: str):
+    config = json.load(open(CONFIG_PATH, 'r+', encoding='utf-8'))
+    config[global_name] = globals()[global_name]
     json.dump(config, open(CONFIG_PATH, 'w', encoding='utf-8'), indent=4)
 
 
@@ -182,11 +193,15 @@ async def on_message(message: discord.Message):
         console_log_with_time(f'Luca has been blamed at {current_blame_time:.1f} UTC '
                               f'by user {message.author.id} in channel {loc.id}')
 
-        is_self_blame = '\nWait, why blame yourself tho? :thinking:' if message.author.id == USER_TO_BLAME else ''
+        if (str_id := str(message.author.id)) in BONUS_QUIPS:
+            quip_msg = f'\n{BONUS_QUIPS[str_id]}'
+        else:
+            quip_msg = ''
+
         await message.reply(
             content=f'<@{USER_TO_BLAME}> was blamed for something (most likely without justification).\n'
                     f"That makes it {total_uses} time{plural_s(total_uses)} that <@{USER_TO_BLAME}>'s been blamed... "
-                    f'{user_uses} time{plural_s(user_uses)} by {message.author.mention} alone.{is_self_blame}'
+                    f'{user_uses} time{plural_s(user_uses)} by {message.author.mention} alone.{quip_msg}'
         )
 
         if total_uses in MILESTONES:
@@ -281,16 +296,29 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(content='Too many milestones! You can only have 50 milestones.')
         elif n not in MILESTONES:
             MILESTONES.append(n)
-            config = json.load(open(CONFIG_PATH, 'r+', encoding='utf-8'))
-            config['MILESTONES'] = MILESTONES
-            json.dump(config, open(CONFIG_PATH, 'w', encoding='utf-8'), indent=4)
+            update_config_with_global('MILESTONES')
             await inter.response.send_message(f"Added {n} as a milestone! Let's look forward to it~\n{CELEBRATE_GIF}")
         else:
             await inter.response.send_message(f'{n} is already a milestone.')
 
 
+@client.tree.command(guild=client.sync_guild)
+@app_commands.describe(user='Server member who deserves a special response when blaming Luca',
+                       quip_msg='The message to add to the end of a #blameluca response.')
+@app_commands.checks.has_permissions(manage_guild=True)
+async def quip(inter: discord.Interaction, user: discord.Member, quip_msg: str):
+    """Add or edit a special quip to add when a particular user uses #blameluca"""
+
+    BONUS_QUIPS[str(user.id)] = quip_msg
+    update_config_with_global('BONUS_QUIPS')
+    await inter.response.send_message(f'Added "{quip_msg}" as a quip for {user.mention}')
+    console_log_with_time(f'Quips updated. User: {user.id} | Quip: "{quip_msg}"')
+
+
 @milestones.error
-async def milestones_handler(inter: discord.Interaction, err: discord.app_commands.AppCommandError):
+@quip.error
+async def error_handler(inter: discord.Interaction, err: discord.app_commands.AppCommandError):
+    console_log_with_time(f'Error occurred: {err!s}')
     if isinstance(err, discord.app_commands.CheckFailure):
         await inter.response.send_message(
             content="You don't have the necessary permissions to run this command - sorry :(",
@@ -298,7 +326,7 @@ async def milestones_handler(inter: discord.Interaction, err: discord.app_comman
         )
     else:
         await inter.response.send_message(
-            content=f'An error occurred: {err}\n #blameluca',
+            content=f'An error occurred: {err!s}\n #blameluca',
             ephemeral=False
         )
 
