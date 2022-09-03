@@ -11,6 +11,10 @@ import discord
 from discord import app_commands
 
 
+def console_log_with_time(msg: str, **kwargs):
+    print(f'[blame] {datetime.now(tz=timezone.utc):%Y/%m/%d %H:%M:%S%f%z} - {msg}', **kwargs)
+
+
 class BlameClient(discord.Client):
     def __init__(self, guild_id: int):
         intents = discord.Intents.default()
@@ -19,13 +23,21 @@ class BlameClient(discord.Client):
         super().__init__(intents=intents)
 
         self.tree = app_commands.CommandTree(self)
-        self.guild_id = guild_id
-        self.sync_guild = discord.Object(id=self.guild_id)
+        self.dev_guild_id = guild_id
+        self.dev_sync_guild = discord.Object(id=self.dev_guild_id)
 
     async def setup_hook(self):
-        # DEPLOY TODO: change guild to None for global sync
-        await self.tree.sync(guild=self.sync_guild)
-        console_log_with_time('Commands synced.')
+        # DEPLOY TODO: deploy = True
+        deploy = False
+        if deploy:
+            self.tree.clear_commands(guild=self.dev_sync_guild)  # clear local commands
+            await self.tree.sync(guild=self.dev_sync_guild)
+            await self.tree.sync()  # global sync
+        else:  # dev
+            self.tree.copy_global_to(guild=self.dev_sync_guild)
+            await self.tree.sync(guild=self.dev_sync_guild)
+
+        console_log_with_time(f'Commands synced with {deploy=}.')
 
 
 # Default config
@@ -42,10 +54,6 @@ BONUS_QUIPS = {
 CONFIG_PATH = 'blame/config.json'
 
 client = BlameClient(BLAMING_GUILD)
-
-
-def console_log_with_time(msg: str, **kwargs):
-    print(f'[blame] {datetime.now(tz=timezone.utc):%Y/%m/%d %H:%M:%S%f%z} - {msg}', **kwargs)
 
 
 def load_config_into_globals(path=CONFIG_PATH):
