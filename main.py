@@ -313,7 +313,7 @@ async def milestones(inter: discord.Interaction, n: t.Optional[int]):
             await inter.response.send_message(f'{n} is already a milestone.')
 
 
-@client.tree.command(guild=client.sync_guild)
+@client.tree.command()
 @app_commands.describe(user='Server member who deserves a special response when blaming Luca',
                        quip_msg='The message to add to the end of a #blameluca response.')
 @app_commands.checks.has_permissions(manage_guild=True)
