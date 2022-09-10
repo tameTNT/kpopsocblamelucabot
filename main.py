@@ -1,5 +1,4 @@
 # Invite: https://discord.com/api/oauth2/authorize?client_id=1008732377612292266&permissions=277025737792&scope=bot
-# todo: multi-server blame bot (separate config, separate tables (by server ID))
 
 import json
 import os
@@ -25,6 +24,7 @@ class BlameClient(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.dev_guild_id = guild_id
         self.dev_sync_guild = discord.Object(id=self.dev_guild_id)
+        console_log_with_time(f'Dev syncing to guild {self.dev_sync_guild.id}')
 
     async def setup_hook(self):
         # DEPLOY TODO: deploy = True
@@ -47,7 +47,7 @@ class BlameClient(discord.Client):
 
 # Default config
 USER_TO_BLAME = 141243441614028800  # tameTNT#7902
-BLAMING_GUILD = 1001090506140430406  # Durham University K-pop Society
+BLAMING_GUILDS = [1001090506140430406]  # Just Durham University K-pop Society by default
 MILESTONES = [10, 50, 100, 500, 1000]
 CELEBRATE_GIF = 'https://media.giphy.com/media/IwAZ6dvvvaTtdI8SD5/giphy.gif'
 DATA_FILE = 'blame/data.db'
@@ -58,7 +58,7 @@ BONUS_QUIPS = {
 
 CONFIG_PATH = 'blame/config.json'
 
-client = BlameClient(BLAMING_GUILD)
+client = BlameClient(BLAMING_GUILDS[0])
 
 
 def load_config_into_globals(path=CONFIG_PATH):
@@ -77,7 +77,7 @@ def load_config_into_globals(path=CONFIG_PATH):
         else:
             config = dict()
             config['USER_TO_BLAME'] = USER_TO_BLAME
-            config['BLAMING_GUILD'] = BLAMING_GUILD
+            config['BLAMING_GUILDS'] = BLAMING_GUILDS
             config['MILESTONES'] = MILESTONES
             config['CELEBRATE_GIF'] = CELEBRATE_GIF
             config['DATA_FILE'] = DATA_FILE
@@ -109,10 +109,11 @@ def db_connect_wrapper(func: CursorCallable):
         con = sqlite3.connect(DATA_FILE)
         cur = con.cursor()
 
-        cur.execute(
-            'CREATE TABLE IF NOT EXISTS Blames '
-            '(blame_id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, timestamp INTEGER)'
-        )
+        for guild_id in BLAMING_GUILDS:
+            cur.execute(
+                f'CREATE TABLE IF NOT EXISTS Blames_{guild_id} '
+                '(blame_id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER, user_id INTEGER, timestamp INTEGER)'
+            )
 
         func_result = func(*args, **kwargs, db_cursor=cur)
 
@@ -126,16 +127,17 @@ def db_connect_wrapper(func: CursorCallable):
 
 
 @db_connect_wrapper
-def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
+def query_db(guild_id: int, query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
              q_argument: int = None, db_cursor: sqlite3.Cursor = None):
     console_log_with_time(f'Querying DB. Type: {query_type} | Arg: {q_argument}')
     if q_argument:
         if query_type in {'channel_id', 'user_id'}:
-            return db_cursor.execute(f'SELECT COUNT(*) FROM Blames WHERE {query_type} = ?', (q_argument,)).fetchone()[
-                0]
+            return db_cursor.execute(
+                f'SELECT COUNT(*) FROM Blames_{guild_id} WHERE {query_type} = ?', (q_argument,)
+            ).fetchone()[0]
         elif query_type == 'last':  # returns most recent blame in table from user_id
             most_recent_blame = db_cursor.execute(
-                'SELECT timestamp FROM Blames WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1',
+                f'SELECT timestamp FROM Blames_{guild_id} WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1',
                 (q_argument,)
             ).fetchone()
             if most_recent_blame:
@@ -146,34 +148,37 @@ def query_db(query_type: t.Literal['channel_id', 'user_id', 'total', 'last'],
             raise ValueError('Missing argument for query_type.')
 
     elif query_type == 'total':  # counts all rows in table - i.e. total blames
-        return db_cursor.execute('SELECT COUNT(*) FROM Blames').fetchone()[0]
+        return db_cursor.execute(f'SELECT COUNT(*) FROM Blames_{guild_id}').fetchone()[0]
     else:
         raise ValueError('Invalid query_type.')
 
 
 @db_connect_wrapper
-def get_leaderboard_table(tracker: t.Literal['channel_id', 'user_id'], top: int, db_cursor: sqlite3.Cursor = None):
+def get_leaderboard_table(guild_id: int, tracker: t.Literal['channel_id', 'user_id'],
+                          top: int, db_cursor: sqlite3.Cursor = None):
     """Returns the highest (the lowest if top < 0) scoring values for tracker."""
     if top < 0:
         top = -top
         sort_order = 'ASC'
     else:
         sort_order = 'DESC'
-    lb_table = db_cursor.execute(f'SELECT {tracker}, COUNT(*) as c FROM Blames '
+    lb_table = db_cursor.execute(f'SELECT {tracker}, COUNT(*) as c FROM Blames_{guild_id} '
                                  f'GROUP BY {tracker} ORDER BY c {sort_order} LIMIT {top}').fetchall()
 
     return lb_table
 
 
 @db_connect_wrapper
-def play_the_blame(channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = None):
+def play_the_blame(guild_id: int, channel_id: int, user_id: int, db_cursor: sqlite3.Cursor = None):
     db_cursor.execute(
-        'INSERT INTO Blames (channel_id, user_id, timestamp) VALUES (?, ?, ?)',
+        f'INSERT INTO Blames_{guild_id} (channel_id, user_id, timestamp) VALUES (?, ?, ?)',
         (channel_id, user_id, int(datetime.utcnow().timestamp()))  # time is in UTC
     )
 
-    user_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames WHERE user_id = ?', (user_id,)).fetchone()[0]
-    total_uses = db_cursor.execute('SELECT COUNT(*) FROM Blames').fetchone()[0]
+    user_uses = db_cursor.execute(
+        f'SELECT COUNT(*) FROM Blames_{guild_id} WHERE user_id = ?', (user_id,)
+    ).fetchone()[0]
+    total_uses = db_cursor.execute(f'SELECT COUNT(*) FROM Blames_{guild_id}').fetchone()[0]
 
     console_log_with_time('Updated blame SQL table')
     return user_uses, total_uses
@@ -196,7 +201,7 @@ async def on_message(message: discord.Message):
             loc = loc.parent
 
         current_blame_time = datetime.utcnow().timestamp()
-        next_use_okay = query_db('last', message.author.id) + SLOWMODE_TIME
+        next_use_okay = query_db(loc.guild.id, 'last', message.author.id) + SLOWMODE_TIME
         if next_use_okay > current_blame_time:
             await message.reply(
                 '<:ThisIsFine:1003384259882537040> Hold ya horses! '
@@ -206,7 +211,7 @@ async def on_message(message: discord.Message):
             )
             return
 
-        user_uses, total_uses = play_the_blame(loc.id, message.author.id)
+        user_uses, total_uses = play_the_blame(loc.guild.id, loc.id, message.author.id)
 
         console_log_with_time(f'Luca has been blamed at {current_blame_time:.1f} UTC '
                               f'by user {message.author.id} in channel {loc.id}')
@@ -240,21 +245,21 @@ async def stats(inter: discord.Interaction, channel: t.Optional[discord.TextChan
     response_embed = discord.Embed(
         title=':chart_with_upwards_trend: Blame stats',
         color=discord.Colour.blurple(),
-        description='Total blames: ' + str(query_db('total')),
+        description=f'Total blames: {query_db(inter.guild_id, "total")}',
         timestamp=inter.created_at
     )
 
     if user:
         response_embed.add_field(
             name=':person_tipping_hand: Blames from user',
-            value=user.mention + str(query_db('user_id', user.id)),
+            value=f'{user.mention}: {query_db(inter.guild_id, "user_id", user.id)}',
             inline=True
         )
 
     if channel:
         response_embed.add_field(
             name=':closed_book: Blames in channel',
-            value=channel.mention + str(query_db('channel_id', channel.id)),
+            value=f'{channel.mention}: {query_db(inter.guild_id, "channel_id", channel.id)}',
             inline=True
         )
 
@@ -270,10 +275,10 @@ async def leaderboard(inter: discord.Interaction, category: t.Literal['users', '
 
     console_log_with_time(f'Leaderboard requested. Category: {category} | n: {n}')
     if category == 'users':
-        lb_list = get_leaderboard_table('user_id', n)
+        lb_list = get_leaderboard_table(inter.guild_id, 'user_id', n)
         lb_list = map(lambda x: (inter.guild.get_member(x[0]).mention, x[1]), lb_list)
     elif category == 'channels':
-        lb_list = get_leaderboard_table('channel_id', n)
+        lb_list = get_leaderboard_table(inter.guild_id, 'channel_id', n)
         lb_list = map(lambda x: (inter.guild.get_channel(x[0]).mention, x[1]), lb_list)
     else:
         raise ValueError(f'Invalid category: {category}')
@@ -362,6 +367,20 @@ async def on_ready():
     await client.change_presence(activity=discord.Game('the blame game - #blameluca amir?'))
 
     console_log_with_time('Bot ready & running - blame away...')
+
+
+@client.event
+async def on_guild_join(guild: discord.Guild):
+    BLAMING_GUILDS.append(guild.id)
+    update_config_with_global('BLAMING_GUILDS')
+    console_log_with_time(f'New guild joined: {guild.name} - {guild.id}')
+
+
+@client.event
+async def on_guild_remove(guild: discord.Guild):
+    BLAMING_GUILDS.remove(guild.id)
+    update_config_with_global('BLAMING_GUILDS')
+    console_log_with_time(f'Guild removed from BLAMING_GUILDS: {guild.name} - {guild.id}')
 
 
 # DEPLOY TODO: hardcode token
